@@ -4,6 +4,7 @@
 #include <iomanip>
 #include <iostream>
 #include <iterator>
+#include <list>
 #include <map>
 #include <ostream>
 #include <sstream>
@@ -42,6 +43,7 @@ public:
     y = 0;
     saved = false;
     scannedBy = -1;
+    alive = true;
   }
   Creature(const Creature &copy) { *this = copy; }
   int id, color, type;
@@ -50,6 +52,7 @@ public:
   string direction;
   int scannedBy;
   bool saved;
+  bool alive;
 
   Creature &operator=(const Creature &rhs) {
     id = rhs.id;
@@ -59,6 +62,7 @@ public:
     y = rhs.y;
     saved = rhs.saved;
     scannedBy = rhs.scannedBy;
+    alive = rhs.alive;
     return *this;
   }
   bool operator==(const Creature &rhs) { return id = rhs.id; }
@@ -102,18 +106,27 @@ typedef map<int, Drone> Drones;
 
 /* ========================================================================= */
 bool gotAllType(Creatures &creatures, int type) {
-  int count = 0; 
+  int count = 0;
+  int goal = 4;
   for (auto &p: creatures) {
     Creature &c = p.second;
-
+    if (c.alive == false)
+      goal--;
     if (c.scannedBy != -1 && c.type == type)
       count++;
   }
-  return count == 4;
+  return count >= goal;
+}
+
+void setAlives(Creatures &creatures, map<int, bool> alives) {
+  for (auto &p : creatures) {
+    Creature &c = p.second;
+    c.alive = alives.at(c.id);
+  }
 }
 /* ========================================================================= */
 
-void parser(Creatures &creatures, Drones &myDrones) {
+map<int, bool> parser(Creatures &creatures, Drones &myDrones) {
   // ignore
   int myScore;
   cin >> myScore;
@@ -202,6 +215,7 @@ void parser(Creatures &creatures, Drones &myDrones) {
   int radarBlipCount;
   cin >> radarBlipCount;
   cin.ignore();
+  map<int, bool> alives;
   for (int i = 0; i < radarBlipCount; i++) {
     int droneId;
     int creatureId;
@@ -210,14 +224,16 @@ void parser(Creatures &creatures, Drones &myDrones) {
     cin.ignore();
     myDrones.at(droneId).blip.at(radar).push_back(creatureId);
     creatures.at(creatureId).direction = radar;
+    alives.at(creatureId) = true;
   }
+  return alives;
 }
 
 void routine(Creatures &creatures) {
   static int step = 0;
   static bool done = false;
   Drones myDrones;
-  parser(creatures, myDrones);
+  map<int, bool> alives = parser(creatures, myDrones);
 
   int droneN = 0;
   for (auto &p : myDrones) {
@@ -239,16 +255,16 @@ void routine(Creatures &creatures) {
       nextX = 7500;
 
     if (step == 0) {
-      nextY = LEVEL1 + MID_STEP;
-      if (gotAllType(creatures, 0))
+      nextY = LEVEL3 + MID_STEP;
+      if (gotAllType(creatures, 2))
         step++;
     } else if (step == 1) {
       nextY = LEVEL2 + MID_STEP;
       if (gotAllType(creatures, 1))
         step++;
     }else if (step == 2) {
-      nextY = LEVEL3 + MID_STEP;
-      if (gotAllType(creatures, 2))
+      nextY = LEVEL1 + MID_STEP;
+      if (gotAllType(creatures, 0))
         step++;
     }else if (step == 3) {
       nextY = LEVEL0;
