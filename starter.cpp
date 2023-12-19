@@ -65,6 +65,7 @@ public:
   bool operator==(const int id) { return this->id = id; }
   bool isTargetable() { return !(saved || scannedBy != -1); }
 };
+typedef map<int, Creature> Creatures;
 
 class Drone {
 public:
@@ -97,10 +98,21 @@ public:
     move(c.direction, light, oss.str());
   }
 };
+typedef map<int, Drone> Drones;
 
 /* ========================================================================= */
-typedef map<int, Creature> Creatures;
-typedef map<int, Drone> Drones;
+bool gotAllType(Creatures &creatures, int type) {
+  int count = 0; 
+  for (auto &p: creatures) {
+    Creature &c = p.second;
+
+    if (c.scannedBy != -1 && c.type == type)
+      count++;
+  }
+  return count == 4;
+}
+/* ========================================================================= */
+
 void parser(Creatures &creatures, Drones &myDrones) {
   // ignore
   int myScore;
@@ -161,13 +173,15 @@ void parser(Creatures &creatures, Drones &myDrones) {
   int droneScanCount;
   cin >> droneScanCount;
   cin.ignore();
+  int totalScannedByMe = 0;
   for (int i = 0; i < droneScanCount; i++) {
     int droneId;
     int creatureId;
     cin >> droneId >> creatureId;
     cin.ignore();
-    if (myDrones.find(droneId) != myDrones.end())
+    if (myDrones.find(droneId) != myDrones.end()) {
       creatures.at(creatureId).scannedBy = droneId;
+    }
   }
 
   int visibleCreatureCount;
@@ -200,6 +214,7 @@ void parser(Creatures &creatures, Drones &myDrones) {
 }
 
 void routine(Creatures &creatures) {
+  static int step = 0;
   static bool done = false;
   Drones myDrones;
   parser(creatures, myDrones);
@@ -218,11 +233,26 @@ void routine(Creatures &creatures) {
 
     int light = 0;
     int nextX, nextY;
-    nextY = 10000;
     if (droneN == 0)
       nextX = 2500;
     else
       nextX = 7500;
+
+    if (step == 0) {
+      nextY = LEVEL1 + MID_STEP;
+      if (gotAllType(creatures, 0))
+        step++;
+    } else if (step == 1) {
+      nextY = LEVEL2 + MID_STEP;
+      if (gotAllType(creatures, 1))
+        step++;
+    }else if (step == 2) {
+      nextY = LEVEL3 + MID_STEP;
+      if (gotAllType(creatures, 2))
+        step++;
+    }else if (step == 3) {
+      nextY = LEVEL0;
+    }
 
     if ((drone.y > (LEVEL1 + MID_STEP) - 350 && drone.y < (LEVEL1 + MID_STEP) + 350) ||
         (drone.y > (LEVEL2 + MID_STEP) - 350 && drone.y < (LEVEL2 + MID_STEP) + 350) ||
