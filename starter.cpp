@@ -14,13 +14,13 @@
 
 using namespace std;
 
-enum Levels {
-  MID_STEP = 2500 / 2,
-  LEVEL0 = 0,
-  LEVEL1 = 2500,
-  LEVEL2 = 5000,
-  LEVEL3 = 7500,
-  LEVEL4 = 10000,
+enum Floors {
+  MID = 2500 / 2,
+  F0 = 0,
+  F1 = 2500,
+  F2 = 5000,
+  F3 = 7500,
+  F4 = 10000,
 };
 
 float distance(int x1, int y1, int x2, int y2) {
@@ -35,6 +35,13 @@ void moveTo(int x, int y, int light, string ctx) {
 
 class Creature {
 public:
+  int id, color, type;
+  int x;
+  int y;
+  map<int, string> direction;
+  int scannedBy;
+  bool saved;
+  bool alive;
   Creature(int id, int color, int type) {
     this->id = id;
     this->color = color;
@@ -46,14 +53,6 @@ public:
     alive = true;
   }
   Creature(const Creature &copy) { *this = copy; }
-  int id, color, type;
-  int x;
-  int y;
-  string direction;
-  int scannedBy;
-  bool saved;
-  bool alive;
-
   Creature &operator=(const Creature &rhs) {
     id = rhs.id;
     color = rhs.color;
@@ -63,21 +62,27 @@ public:
     saved = rhs.saved;
     scannedBy = rhs.scannedBy;
     alive = rhs.alive;
+    direction = rhs.direction;
     return *this;
   }
   bool operator==(const Creature &rhs) { return id = rhs.id; }
   bool operator==(const int id) { return this->id = id; }
-  bool isTargetable() { return !(saved || scannedBy != -1); }
+  bool isTargetable() {
+    return !(saved || scannedBy != -1 || type == -1 || !alive);
+  }
 };
 typedef map<int, Creature> Creatures;
 
 class Drone {
 public:
-  Drone(int id, int x, int y, int battery)
-      : id(id), x(x), y(y), battery(battery) {}
   int id;
   int x, y;
   int battery;
+  Creature *target;
+  Drone(int id, int x, int y, int battery)
+      : id(id), x(x), y(y), battery(battery) {
+    target = NULL;
+  }
   map<string, vector<int>> blip = {
       {"TL", {}}, {"TR", {}}, {"BL", {}}, {"BR", {}}};
 
@@ -93,13 +98,13 @@ public:
     } else if (d == "BR") {
       moveTo(x + 600, y + 600, light, "go BR " + ctx);
     } else {
-      moveTo(x, 0, light, "go UP");
+      moveTo(x, 0, light, "go UP " + ctx);
     }
   }
   void moveToTarget(Creature &c, int light) {
     ostringstream oss;
     oss << "target " << c.id;
-    move(c.direction, light, oss.str());
+    move(c.direction.at(id), light, oss.str());
   }
 };
 typedef map<int, Drone> Drones;
@@ -108,7 +113,7 @@ typedef map<int, Drone> Drones;
 bool gotAllType(Creatures &creatures, int type) {
   int count = 0;
   int goal = 4;
-  for (auto &p: creatures) {
+  for (auto &p : creatures) {
     Creature &c = p.second;
     if (c.alive == false)
       goal--;
@@ -119,14 +124,17 @@ bool gotAllType(Creatures &creatures, int type) {
 }
 
 void setAlives(Creatures &creatures, map<int, bool> alives) {
-  for (auto &p : creatures) {
-    Creature &c = p.second;
-    c.alive = alives.at(c.id);
+  cerr << "Dead creatures: ";
+  for (auto &p : alives) {
+    creatures.at(p.first).alive = p.second;
+    if (p.second == false)
+      cerr << p.first << " ";
   }
+  cerr << endl;
 }
 /* ========================================================================= */
 
-map<int, bool> parser(Creatures &creatures, Drones &myDrones) {
+void parser(Creatures &creatures, Drones &myDrones, map<int, bool> &alives) {
   // ignore
   int myScore;
   cin >> myScore;
@@ -215,7 +223,6 @@ map<int, bool> parser(Creatures &creatures, Drones &myDrones) {
   int radarBlipCount;
   cin >> radarBlipCount;
   cin.ignore();
-  map<int, bool> alives;
   for (int i = 0; i < radarBlipCount; i++) {
     int droneId;
     int creatureId;
@@ -223,65 +230,58 @@ map<int, bool> parser(Creatures &creatures, Drones &myDrones) {
     cin >> droneId >> creatureId >> radar;
     cin.ignore();
     myDrones.at(droneId).blip.at(radar).push_back(creatureId);
-    creatures.at(creatureId).direction = radar;
+    creatures.at(creatureId).direction.at(creatureId) = radar;
     alives.at(creatureId) = true;
   }
-  return alives;
+  cerr << "DEBUG 2" << endl;
 }
 
-void routine(Creatures &creatures) {
-  static int step = 0;
-  static bool done = false;
-  Drones myDrones;
-  map<int, bool> alives = parser(creatures, myDrones);
+Creature *getTarget(Creatures &creatures, int otherTarget) {
+  for (auto &p : creatures) {
+    Creature &c = p.second;
+    if (!c.isTargetable() || c.id == otherTarget) {
+      continue;
+    }
+    return &c;
+  }
+  return (NULL);
+}
 
-  int droneN = 0;
+void dispBlip(const Drone &drone) {
+  for (auto &p : drone.blip) {
+    const vector<int> &v = p.second;
+    cerr << p.first << ": " << v.size() << ", ";
+  }
+  cerr << endl;
+}
+void routine(Creatures &creatures) {
+  Drones myDrones;
+  map<int, bool> alives;
+  for (auto &p : creatures) {
+    alives.insert(make_pair(p.first, false));
+    Creature &c = p.second;
+    for (Drones::iterator it = myDrones.begin(); it != myDrones.end(); it++) {
+      c.direction.insert(make_pair(it->first, "none"));
+    }
+  }
+  parser(creatures, myDrones, alives);
+  setAlives(creatures, alives);
+
+  Creature *lastTarget = NULL;
   for (auto &p : myDrones) {
     Drone &drone = p.second;
-
-    size_t last = 0;
-    cerr << "Drone: " << p.first << endl;
-    for (auto &pBlip : drone.blip) {
-      vector<int> &v = pBlip.second;
-      cerr << pBlip.first << ": " << v.size() << ", ";
+    cerr << "Drone: " << drone.id << endl;
+    dispBlip(drone);
+    if (drone.target == NULL || !drone.target->isTargetable())
+      drone.target =
+          getTarget(creatures, lastTarget != NULL ? lastTarget->id : -1);
+    if (drone.target == NULL) {
+      drone.move("UP", 0, "nothing to do");
+    } else {
+      drone.target = &creatures.at(drone.target->id);
+      drone.moveToTarget(*drone.target, 0);
     }
-    cerr << endl;
-
-    int light = 0;
-    int nextX, nextY;
-    if (droneN == 0)
-      nextX = 2500;
-    else
-      nextX = 7500;
-
-    if (step == 0) {
-      nextY = LEVEL3 + MID_STEP;
-      if (gotAllType(creatures, 2))
-        step++;
-    } else if (step == 1) {
-      nextY = LEVEL2 + MID_STEP;
-      if (gotAllType(creatures, 1))
-        step++;
-    }else if (step == 2) {
-      nextY = LEVEL1 + MID_STEP;
-      if (gotAllType(creatures, 0))
-        step++;
-    }else if (step == 3) {
-      nextY = LEVEL0;
-    }
-
-    if ((drone.y > (LEVEL1 + MID_STEP) - 350 && drone.y < (LEVEL1 + MID_STEP) + 350) ||
-        (drone.y > (LEVEL2 + MID_STEP) - 350 && drone.y < (LEVEL2 + MID_STEP) + 350) ||
-        (drone.y > (LEVEL3 + MID_STEP) - 350 && drone.y < (LEVEL3 + MID_STEP) + 350)) {
-      light = 1;
-    }
-    if (drone.y >= LEVEL3 + MID_STEP + 350) {
-      done = true;
-    }
-    if (done)
-      nextY = LEVEL0;
-    moveTo(nextX, nextY, light, "GO!");
-    droneN++;
+    lastTarget = drone.target;
   }
 }
 
