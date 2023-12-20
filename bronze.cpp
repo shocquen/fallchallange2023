@@ -18,9 +18,11 @@ enum Floors {
   F4 = 10000,
 };
 
+typedef pair<double, double> Point;
+
 class Creature {
 public:
-  int _id, _color, _type, _x, _y;
+  int _id, _color, _type, _x, _y, _Vx, _Vy;
   int _scannedBy;
   bool _onMap;
   bool _isAlive;
@@ -33,6 +35,10 @@ public:
     _scannedBy = -1;
     _type = type;
     _isSaved = false;
+    _x = 0;
+    _y = 0;
+    _Vx = 0;
+    _Vy = 0;
   }
   Creature(const Creature &copy) { *this = copy; }
   Creature &operator=(const Creature &rhs) {
@@ -43,7 +49,26 @@ public:
     _scannedBy = rhs._scannedBy;
     _type = rhs._type;
     _isSaved = rhs._isSaved;
+    _x = rhs._x;
+    _y = rhs._y;
+    _Vx = rhs._Vx;
+    _Vy = rhs._Vy;
     return *this;
+  }
+
+  Point getNextPos() {
+    return {_x + _Vx, _y + _Vy};
+  }
+  double getDirection() {
+    Point p1 = {_x, _y};
+    Point p2 = getNextPos();
+    if (p1.first == p2.first && p1.second == p2.second)
+      return 0;
+    Point v = {p2.first - p1.first, p2.second - p1.second};
+    double mag = sqrt(pow(v.first, 2) + pow(v.second, 2));
+    v.first = v.first / mag;
+    v.second = v.second / mag;
+    return atan(v.second / v.first);
   }
 };
 typedef map<int, Creature> Creatures;
@@ -57,6 +82,9 @@ public:
     _x = x;
     _y = y;
     _battery = battery;
+  }
+  Point getNextPos() {
+    return {};
   }
 };
 typedef map<int, Drone> Drones;
@@ -159,7 +187,7 @@ void parseDroneScannes(Creatures &m, Drones d) {
   }
 }
 
-void parseVisibleCreatures() {
+void parseVisibleCreatures(Creatures &m) {
   int visibleCreatureCount;
   cin >> visibleCreatureCount;
   cin.ignore();
@@ -171,6 +199,11 @@ void parseVisibleCreatures() {
     int creatureVy;
     cin >> creatureId >> creatureX >> creatureY >> creatureVx >> creatureVy;
     cin.ignore();
+    Creature &c = m.at(creatureId);
+    c._x = creatureX;
+    c._y = creatureY;
+    c._Vx = creatureVx;
+    c._Vy = creatureVy;
   }
 }
 
@@ -206,7 +239,7 @@ void parse(Creatures &allCreatures, Drones &myDrones) {
   parseSavedCreatures(allCreatures);
   parseDrones(myDrones);
   parseDroneScannes(allCreatures, myDrones);
-  parseVisibleCreatures();
+  parseVisibleCreatures(allCreatures);
   parseBlip(myDrones, allCreatures);
 }
 
@@ -252,6 +285,17 @@ void debug(Creatures allCreatures, Drones myDrones) {
   for (auto &p : allCreatures) {
     if (p.second._isAlive == false)
       cerr << p.second._id << " ";
+  }
+  cerr << endl;
+
+  cerr << "Monsters: " << endl;
+  for (auto &p : allCreatures) {
+    Creature c = p.second;
+    if (c._type == -1) {
+      cerr << setw(4) <<  c._id << " [" << c._x << ", " << c._y << "]->[";
+      Point nextP = c.getNextPos();
+      cerr << nextP.first << ", " << nextP.second << "] " << c.getDirection() << endl;
+    }
   }
   cerr << endl;
 }
