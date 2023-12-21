@@ -3,6 +3,7 @@
 #include <iomanip>
 #include <iostream>
 #include <map>
+#include <math.h>
 #include <string>
 #include <utility>
 #include <vector>
@@ -20,6 +21,18 @@ enum Floors {
 
 typedef pair<double, double> Point;
 
+double getAngle(Point A, Point B) {
+    Point v = {B.first - A.first, B.second - A.second};
+    double x = atan(abs(v.second / v.first)) * (180 / M_PI);
+
+	if (v.first < 0 && v.second > 0)
+        return 180 - x;
+	else if (v.first < 0 && v.second < 0)
+        return 180 + x;
+	else if (v.first > 0 && v.second < 0)
+      return 360 - x;
+    return x;
+}
 class Creature {
 public:
   int _id, _color, _type, _x, _y, _Vx, _Vy;
@@ -60,15 +73,7 @@ public:
     return {_x + _Vx, _y + _Vy};
   }
   double getDirection() {
-    Point p1 = {_x, _y};
-    Point p2 = getNextPos();
-    if (p1.first == p2.first && p1.second == p2.second)
-      return 0;
-    Point v = {p2.first - p1.first, p2.second - p1.second};
-    double mag = sqrt(pow(v.first, 2) + pow(v.second, 2));
-    v.first = v.first / mag;
-    v.second = v.second / mag;
-    return atan(v.second / v.first);
+    return (getAngle({_x, _y}, getNextPos()));
   }
 };
 typedef map<int, Creature> Creatures;
