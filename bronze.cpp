@@ -4,9 +4,14 @@
 #include <iostream>
 #include <map>
 #include <math.h>
+#include <sstream>
 #include <string>
 #include <utility>
 #include <vector>
+#define D_MAX 600
+#define D_DANGER 500
+#define ONE_EIGHTY_PI 57.2957795131
+#define PI_ONE_EIGHTY 0.01745329251
 
 using namespace std;
 
@@ -21,18 +26,64 @@ enum Floors {
 
 typedef pair<double, double> Point;
 
-double getAngle(Point A, Point B) {
-    Point v = {B.first - A.first, B.second - A.second};
-    double x = atan(abs(v.second / v.first)) * (180 / M_PI);
-
-	if (v.first < 0 && v.second > 0)
-        return 180 - x;
-	else if (v.first < 0 && v.second < 0)
-        return 180 + x;
-	else if (v.first > 0 && v.second < 0)
-      return 360 - x;
-    return x;
+double getDist(Point p1, Point p2) {
+  return (sqrt(pow(p2.first - p1.first, 2) + pow(p2.second - p1.second, 2)));
 }
+double getMagnetude(Point vector) {
+  return (sqrt(pow(vector.first, 2) + pow(vector.second, 2)));
+}
+Point getVector(double angle) {
+  return {round(cos(angle * PI_ONE_EIGHTY) * D_MAX),
+          round(sin(angle * PI_ONE_EIGHTY) * -D_MAX)};
+}
+bool onSegment(Point p, Point q, Point r) {
+  if (q.first <= max(p.first, r.first) && q.first >= min(p.first, r.first) &&
+      q.second <= max(p.second, r.second) &&
+      q.second >= min(p.second, r.second))
+    return true;
+
+  return false;
+}
+int orientation(Point p, Point q, Point r) {
+  int val = (q.second - p.second) * (r.first - q.first) -
+            (q.first - p.first) * (r.second - q.second);
+  if (val == 0)
+    return 0;               // collinear
+  return (val > 0) ? 1 : 2; // clock or counterclock wise
+}
+bool doIntersect(Point p1, Point q1, Point p2, Point q2) {
+  int o1 = orientation(p1, q1, p2);
+  int o2 = orientation(p1, q1, q2);
+  int o3 = orientation(p2, q2, p1);
+  int o4 = orientation(p2, q2, q1);
+
+  if (o1 != o2 && o3 != o4)
+    return true;
+  if (o1 == 0 && onSegment(p1, p2, q1))
+    return true;
+  if (o2 == 0 && onSegment(p1, q2, q1))
+    return true;
+  if (o3 == 0 && onSegment(p2, p1, q2))
+    return true;
+  if (o4 == 0 && onSegment(p2, q1, q2))
+    return true;
+  return false;
+}
+
+double getAngle(Point vector) {
+  double x = atan(abs(vector.second / vector.first)) * ONE_EIGHTY_PI;
+
+  if (vector.first > 0 && vector.second < 0)
+    return x;
+  else if (vector.first < 0 && vector.second < 0)
+    return 180 - x;
+  else if (vector.first < 0 && vector.second > 0)
+    return 180 + x;
+  return 360 - x;
+}
+
+/* ========================================================================= */
+
 class Creature {
 public:
   int _id, _color, _type, _x, _y, _Vx, _Vy;
@@ -69,12 +120,8 @@ public:
     return *this;
   }
 
-  Point getNextPos() {
-    return {_x + _Vx, _y + _Vy};
-  }
-  double getDirection() {
-    return (getAngle({_x, _y}, getNextPos()));
-  }
+  Point getNextPos() { return {_x + _Vx, _y + _Vy}; }
+  double getDirection() { return (getAngle({_Vx, _Vy})); }
 };
 typedef map<int, Creature> Creatures;
 
@@ -88,8 +135,20 @@ public:
     _y = y;
     _battery = battery;
   }
-  Point getNextPos() {
-    return {};
+  double getDist(Creature c) { return (::getDist({_x, _y}, {c._x, c._y})); }
+  double getNextDist(Creature c, Point next) {
+    Point nextCreaturePos = c.getNextPos();
+    return (
+        ::getDist({_x, _y}, {nextCreaturePos.first, nextCreaturePos.second}));
+  }
+  bool isDangerous(Creature c, Point next) {
+    if (c._type != -1)
+      return false;
+    if (doIntersect({_x, _y}, next, {c._x, c._y}, c.getNextPos()))
+      return true;
+    if (getNextDist(c, next) <= D_DANGER)
+      return true;
+    return false;
   }
 };
 typedef map<int, Drone> Drones;
@@ -196,6 +255,13 @@ void parseVisibleCreatures(Creatures &m) {
   int visibleCreatureCount;
   cin >> visibleCreatureCount;
   cin.ignore();
+  for (auto &p : m) {
+    Creature &c = p.second;
+    c._x = 0;
+    c._y = 0;
+    c._Vx = 0;
+    c._Vy = 0;
+  }
   for (int i = 0; i < visibleCreatureCount; i++) {
     int creatureId;
     int creatureX;
@@ -248,36 +314,40 @@ void parse(Creatures &allCreatures, Drones &myDrones) {
   parseBlip(myDrones, allCreatures);
 }
 
+void debugBlip(Drone d) {
+  cerr << setw(6) << "TL: ";
+  for (auto &p1 : d.blip) {
+    if (p1.second == "TL")
+      cerr << p1.first << " ";
+  }
+  cerr << endl;
+  cerr << setw(6) << "TR: ";
+  for (auto &p1 : d.blip) {
+    if (p1.second == "TR")
+      cerr << p1.first << " ";
+  }
+  cerr << endl;
+  cerr << setw(6) << "BL: ";
+  for (auto &p1 : d.blip) {
+    if (p1.second == "BL")
+      cerr << p1.first << " ";
+  }
+  cerr << endl;
+  cerr << setw(6) << "BR: ";
+  for (auto &p1 : d.blip) {
+    if (p1.second == "BR")
+      cerr << p1.first << " ";
+  }
+  cerr << endl;
+}
 void debug(Creatures allCreatures, Drones myDrones) {
   for (auto &p : myDrones) {
     Drone d = p.second;
     cerr << "Drone " << d._id << ": ";
     cerr << d._x << ", " << d._y << endl;
-    cerr << setw(5) << "TL: ";
-    for (auto &p1 : d.blip) {
-      if (p1.second == "TL")
-        cerr << p1.first << " ";
-    }
-    cerr << endl;
-    cerr << setw(6) << "TR: ";
-    for (auto &p1 : d.blip) {
-      if (p1.second == "TR")
-        cerr << p1.first << " ";
-    }
-    cerr << endl;
-    cerr << setw(6) << "BL: ";
-    for (auto &p1 : d.blip) {
-      if (p1.second == "BL")
-        cerr << p1.first << " ";
-    }
-    cerr << endl;
-    cerr << setw(6) << "BR: ";
-    for (auto &p1 : d.blip) {
-      if (p1.second == "BR")
-        cerr << p1.first << " ";
-    }
-    cerr << endl;
-    cerr << setw(2) << "" << "scanneds: ";
+
+    cerr << setw(2) << ""
+         << "scanneds: ";
     for (auto &p : allCreatures) {
       Creature c = p.second;
       if (c._scannedBy == d._id)
@@ -296,27 +366,60 @@ void debug(Creatures allCreatures, Drones myDrones) {
   cerr << "Monsters: " << endl;
   for (auto &p : allCreatures) {
     Creature c = p.second;
-    if (c._type == -1) {
-      cerr << setw(4) <<  c._id << " [" << c._x << ", " << c._y << "]->[";
+    if (c._type == -1 && (c._Vx && c._Vy)) {
+      cerr << setw(4) << c._id << " [" << c._x << ", " << c._y << "]->[";
       Point nextP = c.getNextPos();
-      cerr << nextP.first << ", " << nextP.second << "] " << c.getDirection() << endl;
+      cerr << nextP.first << ", " << nextP.second << "] " << c.getDirection()
+           << endl;
     }
   }
   cerr << endl;
 }
 
 /* ========================================================================= */
+void moveTo(int x, int y, int light, string ctx) {
+  cout << "MOVE " << x << " " << y << " " << light << " " << ctx << endl;
+}
 
 int main() {
   Creatures allCreatures;
   Drones myDrones;
 
   creaturesParser(allCreatures);
+  Creature *target;
   while (1) {
     parse(allCreatures, myDrones);
-    debug(allCreatures, myDrones);
+    // debug(allCreatures, myDrones);
 
-    cout << "WAIT 1" << endl; // MOVE <x> <y> <light (1|0)> | WAIT <light (1|0)>
-    cout << "WAIT 1" << endl; // MOVE <x> <y> <light (1|0)> | WAIT <light (1|0)>
+    int i = 0;
+    for (auto &dP : myDrones) {
+      Drone &d = dP.second;
+      // cout << "WAIT 1 i: " << i << endl;
+
+      for (auto &dC : allCreatures) {
+        if (dC.second._type != -1 && dC.second._isAlive &&
+            dC.second._isSaved == false && dC.second._scannedBy == -1) {
+          target = &dC.second;
+          break;
+        }
+      }
+      cerr << "Target: " << target->_id << " ";
+      if (target) {
+        string dir = d.blip.at(target->_id);
+        cerr << dir << endl;
+        Point v = getVector(90);
+        if (dir == "TL") {
+          v = getVector(135);
+        } else if (dir == "TR") {
+          v = getVector(45);
+        } else if (dir == "BL") {
+          v = getVector(225);
+        } else if (dir == "BR") {
+          v = getVector(315);
+        }
+        moveTo(d._x + v.first, d._y + v.second, 1, dir);
+      }
+      i++;
+    }
   }
 }
