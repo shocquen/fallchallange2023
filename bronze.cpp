@@ -36,6 +36,10 @@ Point getVector(double angle) {
   return {round(cos(angle * PI_ONE_EIGHTY) * D_MAX),
           round(sin(angle * PI_ONE_EIGHTY) * -D_MAX)};
 }
+Point getVector(double angle, double mag) {
+  return {round(cos(angle * PI_ONE_EIGHTY) * mag),
+          round(sin(angle * PI_ONE_EIGHTY) * -mag)};
+}
 bool onSegment(Point p, Point q, Point r) {
   if (q.first <= max(p.first, r.first) && q.first >= min(p.first, r.first) &&
       q.second <= max(p.second, r.second) &&
@@ -255,13 +259,13 @@ void parseVisibleCreatures(Creatures &m) {
   int visibleCreatureCount;
   cin >> visibleCreatureCount;
   cin.ignore();
-  for (auto &p : m) {
-    Creature &c = p.second;
-    c._x = 0;
-    c._y = 0;
-    c._Vx = 0;
-    c._Vy = 0;
-  }
+  // for (auto &p : m) {
+  //   Creature &c = p.second;
+  //   c._x = 0;
+  //   c._y = 0;
+  //   c._Vx = 0;
+  //   c._Vy = 0;
+  // }
   for (int i = 0; i < visibleCreatureCount; i++) {
     int creatureId;
     int creatureX;
@@ -314,7 +318,7 @@ void parse(Creatures &allCreatures, Drones &myDrones) {
   parseBlip(myDrones, allCreatures);
 }
 
-void debugBlip(Drone d) {
+void debugDroneBlip(Drone d) {
   cerr << setw(6) << "TL: ";
   for (auto &p1 : d.blip) {
     if (p1.second == "TL")
@@ -340,7 +344,7 @@ void debugBlip(Drone d) {
   }
   cerr << endl;
 }
-void debug(Creatures allCreatures, Drones myDrones) {
+void debugDrones(Drones myDrones, Creatures allCreatures) {
   for (auto &p : myDrones) {
     Drone d = p.second;
     cerr << "Drone " << d._id << ": ";
@@ -354,15 +358,18 @@ void debug(Creatures allCreatures, Drones myDrones) {
         cerr << c._id << " ";
     }
     cerr << endl;
+    debugDroneBlip(d);
   }
-
+}
+void debugDeadCreatures(Creatures allCreatures) {
   cerr << "Dead creatures: ";
   for (auto &p : allCreatures) {
     if (p.second._isAlive == false)
       cerr << p.second._id << " ";
   }
   cerr << endl;
-
+}
+void debugMonsters(Creatures allCreatures) {
   cerr << "Monsters: " << endl;
   for (auto &p : allCreatures) {
     Creature c = p.second;
@@ -375,51 +382,133 @@ void debug(Creatures allCreatures, Drones myDrones) {
   }
   cerr << endl;
 }
+void debug(Creatures allCreatures, Drones myDrones) {
+  // debugDrones(myDrones, allCreatures);
+  // debugDeadCreatures(allCreatures);
+  debugMonsters(allCreatures);
+}
 
 /* ========================================================================= */
 void moveTo(int x, int y, int light, string ctx) {
   cout << "MOVE " << x << " " << y << " " << light << " " << ctx << endl;
 }
 
+Point vectorFromDir(string dir) {
+  if (dir == "TL") {
+    return {-424, -424};
+  } else if (dir == "TR") {
+    return {424, -424};
+  } else if (dir == "BL") {
+    return {-424, 424};
+  } else if (dir == "BR") {
+    return {424, 424};
+  }
+  return {0, -600};
+}
+double angleFromDir(string dir) {
+  if (dir == "TL") {
+    return 135;
+  } else if (dir == "TR") {
+    return 45;
+  } else if (dir == "BL") {
+    return 225;
+  } else if (dir == "BR") {
+    return 315;
+  }
+  return 90;
+}
+
+bool checkAgnle(vector<Creature> monsters, Point p1, double angle) {
+  for (auto &m : monsters) {
+    double mAngle = getAngle({m._Vx, m._Vy});
+    for (int i = 0; i < 32; i++) {
+      int monsterMag = i / 32 * 540;
+      int droneMag = i / 32 * 600;
+      Point Vp = getVector(mAngle, monsterMag);
+      Point p = {m._x + Vp.first, m._y + Vp.second};
+      Point Vq = getVector(angle, droneMag);
+      Point q = {p1.first + Vq.first, p1.second + Vq.second};
+      if (getDist(p, q) < 620)
+        return false;
+    }
+  }
+  return true;
+}
+double getBetterAngle(vector<Creature> monsters, Drone d, double angle) {
+  int i = 0;
+  while (i < 360) {
+    if (checkAgnle(monsters, {d._x, d._y}, angle + i)) {
+      return angle + i;
+    }
+    if (checkAgnle(monsters, {d._x, d._y}, angle - i)) {
+      return angle - i;
+    }
+    i++;
+  }
+  return angle;
+}
+void routine(Creatures &allCreatures, Drones &myDrones) {
+  static Creature *target = NULL;
+
+  int i = 0;
+  for (auto &dP : myDrones) {
+    Drone &d = dP.second;
+    cerr << ">>> Drone: " << d._id << endl;
+    double directionAngle = 90;
+    ostringstream ctx;
+    vector<Creature> monsters;
+    int light = 1;
+
+    // Get target
+    for (auto &cP : allCreatures) {
+      if (cP.second._type == -1 && cP.second._Vx && cP.second._Vy) {
+        monsters.push_back(cP.second);
+      }
+      if (cP.second._type != -1 && cP.second._isAlive &&
+          cP.second._isSaved == false && cP.second._scannedBy == -1) {
+        target = &cP.second;
+        // break;
+      }
+    }
+    if (target) { // then get the next point in func of the target direction
+      cerr << "Target: " << target->_id << " ";
+      string dir = d.blip.at(target->_id);
+      cerr << dir << endl;
+      directionAngle = angleFromDir(dir);
+      ctx << dir << " " << directionAngle;
+    }
+
+    // if danger on the way reroute
+    Point v = getVector(directionAngle);
+    bool danger = false;
+    for (auto &m : monsters) {
+      double mag = getMagnetude({m._Vx, m._Vy});
+      if (getDist({d._x + v.first, d._y + v.second}, {m._x, m._y}) <= 620 ||
+          getDist({m._x, m._y}, {d._x, d._y}) <= 620) {
+        light = 0;
+        danger = true;
+        break;
+      }
+    }
+    if (danger) {
+      cerr << "change angle from " << directionAngle;
+      directionAngle = getBetterAngle(monsters, d, directionAngle);
+      cerr << "to " << directionAngle << endl;
+      ctx << " dodge!";
+    }
+    v = getVector(directionAngle);
+    moveTo(d._x + v.first, d._y + v.second, light, ctx.str());
+    i++;
+  }
+}
 int main() {
   Creatures allCreatures;
   Drones myDrones;
 
   creaturesParser(allCreatures);
-  Creature *target;
   while (1) {
     parse(allCreatures, myDrones);
-    // debug(allCreatures, myDrones);
-
-    int i = 0;
-    for (auto &dP : myDrones) {
-      Drone &d = dP.second;
-      // cout << "WAIT 1 i: " << i << endl;
-
-      for (auto &dC : allCreatures) {
-        if (dC.second._type != -1 && dC.second._isAlive &&
-            dC.second._isSaved == false && dC.second._scannedBy == -1) {
-          target = &dC.second;
-          break;
-        }
-      }
-      cerr << "Target: " << target->_id << " ";
-      if (target) {
-        string dir = d.blip.at(target->_id);
-        cerr << dir << endl;
-        Point v = getVector(90);
-        if (dir == "TL") {
-          v = getVector(135);
-        } else if (dir == "TR") {
-          v = getVector(45);
-        } else if (dir == "BL") {
-          v = getVector(225);
-        } else if (dir == "BR") {
-          v = getVector(315);
-        }
-        moveTo(d._x + v.first, d._y + v.second, 1, dir);
-      }
-      i++;
-    }
+    debug(allCreatures, myDrones);
+    routine(allCreatures, myDrones);
   }
 }
