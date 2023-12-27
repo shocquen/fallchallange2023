@@ -33,18 +33,14 @@ Point getPointOnSegmentRatio(Point p1, Point p2, int m, int n) {
   return ret;
 }
 
-void foo(Point p1, Point p2, Point p3, Point p4) {
-  const int ratio = 6;
-  std::array<Point, ratio - 1> seg1;
-  std::array<Point, ratio - 1> seg2;
+void foo(Point p1, Point p2) {
+  const int ratio = 3;
+  std::array<Point, ratio + 1> steps;
 
 
-  for (int i = 0; i < ratio - 1 ; i++) {
-    seg1[i] = getPointOnSegmentRatio(p1, p2, i + 1, ratio - (i + 1));
-    seg2[i] = getPointOnSegmentRatio(p3, p4, i + 1, ratio - (i + 1));
-    std::cout << "seg1 " << i << ": " << seg1[i].x << " " << seg1[i].y << "\n";
-    std::cout << "seg2 " << i << ": " << seg2[i].x << " " << seg2[i].y << "\n";
-    std::cout << "dist: " << getDist(seg1[i], seg2[i]) << '\n';
+  for (int i = 0; i <= ratio; i++) {
+    steps[i] = getPointOnSegmentRatio(p1, p2, i, ratio - i);
+    std::cout << "step " << i << ": " << steps[i].x << " " << steps[i].y << "\n";
   }
 
 }
@@ -52,11 +48,9 @@ void foo(Point p1, Point p2, Point p3, Point p4) {
 int main(void) {
 	Point p1 = {5, 5};
 	Point p2 = {-1, -4};
-	Point p3 = {3, 5};
-	Point p4 = {-3, -4};
 
 	// Point p3 = getPointOnSegmentRatio(p1, p2, 1, 1);
 	// std::cout << p3.x << ", " << p3.y << std::endl;
 
-  foo(p1, p2, p3, p4);
+  foo(p1, p2);
 }

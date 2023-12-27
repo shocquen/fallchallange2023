@@ -5,12 +5,13 @@
 #include <iostream>
 #include <map>
 #include <math.h>
+#include <pthread.h>
 #include <sstream>
 #include <string>
 #include <utility>
 #include <vector>
 #define D_MAX 600
-#define D_DANGER 620
+#define D_DANGER 640
 #define ONE_EIGHTY_PI 57.2957795131
 #define PI_ONE_EIGHTY 0.01745329251
 
@@ -116,7 +117,9 @@ public:
     return *this;
   }
 
-  bool isTargatable() { return (_isAlive && _type != -1 && _scannedBy == -1); }
+  bool isTargatable() {
+    return (_isAlive && _type != -1 && _isSaved == false && _scannedBy == -1);
+  }
   Point getNextPos() { return {_x + _Vx, _y + _Vy}; }
   Point getPos() { return {_x, _y}; }
   double getDirection() { return (getAngle({_Vx, _Vy})); }
@@ -138,18 +141,21 @@ public:
 
   int isDangerous(Point v, vector<Creature> monsters) {
     const int ratio = 32;
-    Point droneSteps[ratio]{};
+    array<Point, ratio + 1> droneSteps;
     Point p1 = getPos();
     Point p2 = {p1.x + v.x, p1.y + v.y};
 
-    for (int i = 0; i < ratio - 1; i++) {
-      droneSteps[i] = getPointOnSegmentRatio(p1, p2, i + 1, ratio - (i + 1));
+    for (int i = 0; i <= ratio; i++) {
+      droneSteps[i] = getPointOnSegmentRatio(p1, p2, i, ratio - i);
+      if (droneSteps[i].x > F4 - 800 || droneSteps[i].x < 800 ||
+          droneSteps[i].y > F4 - 800)
+        return 1;
     }
     for (auto &monster : monsters) {
-      for (int i = 0; i < ratio - 1; i++) {
+      for (int i = 0; i <= ratio; i++) {
         Point nexPos = monster.getNextPos();
-        Point compare = getPointOnSegmentRatio(monster.getPos(), nexPos, i + 1,
-                                               ratio - (i + 1));
+        Point compare =
+            getPointOnSegmentRatio(monster.getPos(), nexPos, i, ratio - i);
         if (::getDist(droneSteps[i], compare) < D_DANGER) {
           return monster._id;
         }
@@ -158,10 +164,14 @@ public:
     return 0;
   }
 
+  bool isInTargetsZone(int targetsType) {
+    return (_y >= F1 * (targetsType + 1) && _y <= F1 * (targetsType + 2));
+  }
+
   void setSafeDirections(array<int, 360> &directions,
                          vector<Creature> monsters) {
     for (int angle = 0; angle < 360; angle++) {
-      directions[angle] = isDangerous(getVector(angle + 1), monsters);
+      directions[angle] = isDangerous(getVector(angle), monsters);
     }
   }
 };
@@ -441,84 +451,132 @@ double angleFromDir(string dir) {
   return 90;
 }
 
-void routine(Creatures &allCreatures, Drones &myDrones) {
+void changeAngleInCaseOfDanger(const array<int, 360> directions,
+                               int &directionAngle, Point &v) {
+  bool changed = false;
+  if (directions[directionAngle - 1]) {
+    cerr << "Danger, there is monster " << directions[directionAngle - 1]
+         << " on " << directionAngle << endl;
+    for (int i = 1; i <= 360; i++) {
+      int plus, minus;
+      plus = (directionAngle + i) % 360;
+      minus = (directionAngle - i) % 360;
+      if (minus < 0)
+        minus += 360;
 
-  vector<Creature> monsters;
-  array<int, 3> countByType{};
+      if (directions[plus] == 0) {
+        v = getVector(plus);
+        cerr << "New direction: " << plus << " | +" << i << endl;
+        changed = true;
+        break;
+      }
+      if (directions[minus] == 0) {
+        v = getVector(minus);
+        cerr << "New direction: " << minus << " | -" << i << endl;
+        changed = true;
+        break;
+      }
+    }
+    if (!changed) {
+      for (int i = 1; i <= 360; i++) {
+        int plus, minus;
+        plus = (directionAngle + i) % 360;
+        minus = (directionAngle - i) % 360;
+        if (minus < 0)
+          minus += 360;
+
+        if (directions[plus] <= 1) {
+          v = getVector(plus);
+          cerr << "New direction: " << plus << " | +" << i << endl;
+          break;
+        }
+        if (directions[minus] <= 1) {
+          v = getVector(minus);
+          cerr << "New direction: " << minus << " | -" << i << endl;
+          break;
+        }
+      }
+    }
+  }
+}
+void routine(Creatures &allCreatures, Drones &myDrones) {
+  static int routineCount = 0;
+  vector<Creature> monsters{};
+  array<vector<Creature>, 3> targetableByType{};
+  array<vector<Creature>, 3> scannedByType{};
 
   for (auto &[creatureId, creature] : allCreatures) {
     if (creature._type == -1 && creature._Vx && creature._Vy) {
       monsters.push_back(creature);
     } else if (creature.isTargatable()) {
-      countByType[creature._type]++;
-    }
+      targetableByType[creature._type].push_back(creature);
+    } else if (creature._scannedBy != -1)
+      scannedByType[creature._type].push_back(creature);
   }
 
   int mustTargetType = -1;
-  for (int i = 2; i >= 0; i--) {
-    if (countByType[i]) {
-      mustTargetType = i;
-      break;
-    }
+
+  if (targetableByType[2].size()) {
+    mustTargetType = 2;
+  } else if (targetableByType[1].size() && scannedByType[2].empty()) {
+    mustTargetType = 1;
+  } else if (targetableByType[0].size() && scannedByType[1].empty()) {
+    mustTargetType = 0;
   }
   cerr << "Must target type: " << mustTargetType << endl;
 
   int droneLoopCount = 0;
   for (auto &[droneId, drone] : myDrones) {
+    Drone otherDrone = myDrones.at((droneId + 2) % 4);
     cerr << ">>> Drone: " << drone._id << endl;
-    Point next = {F1, F0};
-    if (droneLoopCount) {
-      next.x = F3;
-    }
-    switch (mustTargetType) {
-    case 0:
-      next.y = F1MID;
-      break;
-    case 1:
-      next.y = F2MID;
-      break;
-    case 2:
-      next.y = F3MID;
-      break;
-    }
-    cerr << "next: " << next.x << ", " << next.y << endl;
-
-    int directionAngle = getAngle({next.x - drone._x, next.y - drone._y});
+    int directionAngle = 90;
+    Creature *target = NULL;
     ostringstream ctx;
+
+    if (mustTargetType != -1) {
+      if (drone.isInTargetsZone(mustTargetType)) {
+        ctx << " IN ZONE";
+        if (droneLoopCount) {
+          for (auto it = targetableByType[mustTargetType].rbegin();
+               it != targetableByType[mustTargetType].rend(); it++) {
+            target = &(*it);
+            ctx << " HUNTING";
+            break;
+          }
+        } else {
+          for (auto &creature : targetableByType[mustTargetType]) {
+            target = &creature;
+            ctx << " HUNTING";
+            break;
+          }
+        }
+      } else if (((mustTargetType + 1) * F1) > drone._y) {
+        ctx << " MOVING DOWN";
+        Point next;
+        if (drone._x > F2)
+          next.x = F3;
+        else
+          next.x = F1;
+        next.y = (mustTargetType + 1) * F1;
+        directionAngle = getAngle({next.x - drone._x, next.y - drone._y});
+      }
+    }
+    if (target) {
+      directionAngle = angleFromDir(drone.blip.at(target->_id));
+      cerr << "target: " << target->_id << endl;
+    }
     ctx << " " << directionAngle;
     int light = 0;
-    if ((drone._y >= F1 + 1000 && drone._y <= F2 - 1000) ||
-        (drone._y >= F2 + 1000 && drone._y <= F3 - 1000) ||
-        (drone._y >= F3 + 1000 && drone._y <= F4 - 1000)) {
+    if (drone._y >= F1 && routineCount%2 == 0) {
       light = 1;
     }
 
     array<int, 360> directions{};
     drone.setSafeDirections(directions, monsters);
+
     Point v = getVector(directionAngle);
 
-    // if danger on the way reroute
-    if (directions[directionAngle - 1]) {
-      cerr << "Danger, there is monster " << directions[directionAngle - 1]
-           << " on " << directionAngle << endl;
-      light = 0;
-      for (int i = 1; i <= 360; i++) {
-        int plus, minus;
-        plus = (directionAngle + i) % 360;
-        minus = abs(directionAngle - i) % 360;
-        if (directions[plus] == 0) {
-          v = getVector(plus);
-          cerr << "New direction: " << plus << endl;
-          break;
-        }
-        if (directions[minus] == 0) {
-          v = getVector(minus);
-          cerr << "New direction: " << minus << endl;
-          break;
-        }
-      }
-    }
-
+    changeAngleInCaseOfDanger(directions, directionAngle, v);
     moveTo(drone._x + v.x, drone._y + v.y, light, ctx.str());
     droneLoopCount++;
   }
