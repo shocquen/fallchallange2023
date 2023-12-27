@@ -20,8 +20,11 @@ enum Floors {
   MID = 2500 / 2,
   F0 = 0,
   F1 = 2500,
+  F1MID = F1 + MID,
   F2 = 5000,
+  F2MID = F2 + MID,
   F3 = 7500,
+  F3MID = F3 + MID,
   F4 = 10000,
 };
 
@@ -113,6 +116,7 @@ public:
     return *this;
   }
 
+  bool isTargatable() { return (_isAlive && _type != -1 && _scannedBy == -1); }
   Point getNextPos() { return {_x + _Vx, _y + _Vy}; }
   Point getPos() { return {_x, _y}; }
   double getDirection() { return (getAngle({_Vx, _Vy})); }
@@ -165,7 +169,7 @@ typedef map<int, Drone> Drones;
 
 /* ========================================================================= */
 
-void creaturesParser(Creatures &m) {
+void creaturesParser(Creatures &creatures) {
   int creatureCount;
   cin >> creatureCount;
   cin.ignore();
@@ -175,7 +179,7 @@ void creaturesParser(Creatures &m) {
     int type;
     cin >> id >> color >> type;
     cin.ignore();
-    m.insert({id, Creature(id, color, type)});
+    auto c = creatures.insert({id, Creature(id, color, type)});
   }
   cerr << "Creatures count: " << creatureCount << endl;
 }
@@ -438,46 +442,66 @@ double angleFromDir(string dir) {
 }
 
 void routine(Creatures &allCreatures, Drones &myDrones) {
-  array<Creature *, 2> targets;
+
+  vector<Creature> monsters;
+  array<int, 3> countByType{};
+
+  for (auto &[creatureId, creature] : allCreatures) {
+    if (creature._type == -1 && creature._Vx && creature._Vy) {
+      monsters.push_back(creature);
+    } else if (creature.isTargatable()) {
+      countByType[creature._type]++;
+    }
+  }
+
+  int mustTargetType = -1;
+  for (int i = 2; i >= 0; i--) {
+    if (countByType[i]) {
+      mustTargetType = i;
+      break;
+    }
+  }
+  cerr << "Must target type: " << mustTargetType << endl;
 
   int droneLoopCount = 0;
   for (auto &[droneId, drone] : myDrones) {
     cerr << ">>> Drone: " << drone._id << endl;
-    targets[droneLoopCount] = NULL;
-    int directionAngle = 90;
-    ostringstream ctx;
-    vector<Creature> monsters;
-    int light = 1;
-
-    // Get target
-    for (auto &[creatureId, creature] : allCreatures) {
-      if (creature._type == -1 && creature._Vx && creature._Vy) {
-        monsters.push_back(creature);
-      }
-      if (creature._type != -1 && creature._isAlive &&
-          creature._isSaved == false && creature._scannedBy == -1 &&
-          (targets[1 & (droneLoopCount + 1)] != NULL &&
-           targets[1 & (droneLoopCount + 1)]->_id != creature._id)) {
-        targets[droneLoopCount] = &creature;
-      }
+    Point next = {F1, F0};
+    if (droneLoopCount) {
+      next.x = F3;
     }
-    if (targets[droneLoopCount]) { // then get the next point in func of the
-                                   // target
-                                   // direction
-      cerr << "Target: " << targets[droneLoopCount]->_id << " ";
-      string dir = drone.blip.at(targets[droneLoopCount]->_id);
-      cerr << dir << endl;
-      directionAngle = angleFromDir(dir);
-      ctx << dir << " " << directionAngle;
+    switch (mustTargetType) {
+    case 0:
+      next.y = F1MID;
+      break;
+    case 1:
+      next.y = F2MID;
+      break;
+    case 2:
+      next.y = F3MID;
+      break;
+    }
+    cerr << "next: " << next.x << ", " << next.y << endl;
+
+    int directionAngle = getAngle({next.x - drone._x, next.y - drone._y});
+    ostringstream ctx;
+    ctx << " " << directionAngle;
+    int light = 0;
+    if ((drone._y >= F1 + 1000 && drone._y <= F2 - 1000) ||
+        (drone._y >= F2 + 1000 && drone._y <= F3 - 1000) ||
+        (drone._y >= F3 + 1000 && drone._y <= F4 - 1000)) {
+      light = 1;
     }
 
     array<int, 360> directions{};
     drone.setSafeDirections(directions, monsters);
     Point v = getVector(directionAngle);
+
     // if danger on the way reroute
     if (directions[directionAngle - 1]) {
       cerr << "Danger, there is monster " << directions[directionAngle - 1]
            << " on " << directionAngle << endl;
+      light = 0;
       for (int i = 1; i <= 360; i++) {
         int plus, minus;
         plus = (directionAngle + i) % 360;
@@ -493,7 +517,6 @@ void routine(Creatures &allCreatures, Drones &myDrones) {
           break;
         }
       }
-      cerr << "No new direction found..." << endl;
     }
 
     moveTo(drone._x + v.x, drone._y + v.y, light, ctx.str());
