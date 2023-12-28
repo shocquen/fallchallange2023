@@ -11,7 +11,7 @@
 #include <utility>
 #include <vector>
 #define D_MAX 600
-#define D_DANGER 640
+#define D_DANGER 650
 #define ONE_EIGHTY_PI 57.2957795131
 #define PI_ONE_EIGHTY 0.01745329251
 
@@ -79,6 +79,19 @@ double getAngle(Point vector) {
   return 360 - a;
 }
 
+double getAngleFromBlip(string dir) {
+  if (dir == "TL") {
+    return 135;
+  } else if (dir == "TR") {
+    return 45;
+  } else if (dir == "BL") {
+    return 225;
+  } else if (dir == "BR") {
+    return 315;
+  }
+  return 90;
+}
+
 /* ========================================================================= */
 
 class Creature {
@@ -120,6 +133,9 @@ public:
   bool isTargatable() {
     return (_isAlive && _type != -1 && _isSaved == false && _scannedBy == -1);
   }
+  bool isInZone(int zone) {
+    return (_y >= F1 * (zone) && _y <= F1 * (zone + 1));
+  }
   Point getNextPos() { return {_x + _Vx, _y + _Vy}; }
   Point getPos() { return {_x, _y}; }
   double getDirection() { return (getAngle({_Vx, _Vy})); }
@@ -138,6 +154,13 @@ public:
   }
 
   Point getPos() { return {_x, _y}; }
+
+  Point getStratPointFromZone(int zone) {
+    Point ret;
+    ret.x = _x > F2 ? F3 : F1;
+    ret.y = (zone * F1) + MID;
+    return ret;
+  }
 
   int isDangerous(Point v, vector<Creature> monsters) {
     const int ratio = 32;
@@ -277,23 +300,22 @@ void parseDroneScannes(Creatures &creatures, Drones drone) {
 
 void resetCreatures(Creatures &creatures) {
   for (auto &[k, v] : creatures) {
-    v._x = 0;
-    v._y = 0;
-    v._Vx = 0;
-    v._Vy = 0;
-    v._scannedBy = -1;
+    if (v._type != -1) {
+      v._x = 0;
+      v._y = 0;
+      v._Vx = 0;
+      v._Vy = 0;
+      v._scannedBy = -1;
+    } else {
+      v._x += v._Vx;
+      v._y += v._Vy;
+    }
   }
 }
 void parseVisibleCreatures(Creatures &m) {
   int visibleCreatureCount;
   cin >> visibleCreatureCount;
   cin.ignore();
-  for (auto &[k, v] : m) {
-    v._x = 0;
-    v._y = 0;
-    v._Vx = 0;
-    v._Vy = 0;
-  }
   for (int i = 0; i < visibleCreatureCount; i++) {
     int creatureId;
     int creatureX;
@@ -399,7 +421,7 @@ void debugDeadCreatures(Creatures allCreatures) {
 void debugMonsters(Creatures allCreatures, Drones myDrones) {
   cerr << "Monsters: " << endl;
   for (auto &[creatureId, creature] : allCreatures) {
-    if (creature._type == -1 && (creature._Vx && creature._Vy)) {
+    if (creature._type == -1 && (creature._x && creature._y)) {
       cerr << setw(4) << creature._id << " [" << creature._x << ", "
            << creature._y << "]->[";
       Point nextP = creature.getNextPos();
@@ -426,38 +448,14 @@ void moveTo(int x, int y, int light, string ctx) {
   cout << "MOVE " << x << " " << y << " " << light << " " << ctx << endl;
 }
 
-Point vectorFromDir(string dir) {
-  if (dir == "TL") {
-    return {-424, -424};
-  } else if (dir == "TR") {
-    return {424, -424};
-  } else if (dir == "BL") {
-    return {-424, 424};
-  } else if (dir == "BR") {
-    return {424, 424};
-  }
-  return {0, -600};
-}
-double angleFromDir(string dir) {
-  if (dir == "TL") {
-    return 135;
-  } else if (dir == "TR") {
-    return 45;
-  } else if (dir == "BL") {
-    return 225;
-  } else if (dir == "BR") {
-    return 315;
-  }
-  return 90;
-}
 
-void changeAngleInCaseOfDanger(const array<int, 360> directions,
+void getBetterAngle(const array<int, 360> directions,
                                int &directionAngle, Point &v) {
   bool changed = false;
-  if (directions[directionAngle - 1]) {
+  if (directions[directionAngle]) {
     cerr << "Danger, there is monster " << directions[directionAngle - 1]
          << " on " << directionAngle << endl;
-    for (int i = 1; i <= 360; i++) {
+    for (int i = 1; i <= 180; i++) {
       int plus, minus;
       plus = (directionAngle + i) % 360;
       minus = (directionAngle - i) % 360;
@@ -478,7 +476,7 @@ void changeAngleInCaseOfDanger(const array<int, 360> directions,
       }
     }
     if (!changed) {
-      for (int i = 1; i <= 360; i++) {
+      for (int i = 1; i <= 180; i++) {
         int plus, minus;
         plus = (directionAngle + i) % 360;
         minus = (directionAngle - i) % 360;
@@ -487,24 +485,26 @@ void changeAngleInCaseOfDanger(const array<int, 360> directions,
 
         if (directions[plus] <= 1) {
           v = getVector(plus);
-          cerr << "New direction: " << plus << " | +" << i << endl;
+          cerr << "New meh direction: " << plus << " | +" << i << endl;
           break;
         }
         if (directions[minus] <= 1) {
           v = getVector(minus);
-          cerr << "New direction: " << minus << " | -" << i << endl;
+          cerr << "New meh irection: " << minus << " | -" << i << endl;
           break;
         }
       }
     }
   }
 }
+
 void routine(Creatures &allCreatures, Drones &myDrones) {
   static int routineCount = 0;
   vector<Creature> monsters{};
   array<vector<Creature>, 3> targetableByType{};
   array<vector<Creature>, 3> scannedByType{};
 
+  // Fill vectors
   for (auto &[creatureId, creature] : allCreatures) {
     if (creature._type == -1 && creature._Vx && creature._Vy) {
       monsters.push_back(creature);
@@ -516,6 +516,7 @@ void routine(Creatures &allCreatures, Drones &myDrones) {
 
   int mustTargetType = -1;
 
+  // Be sure to comple a zone before going the otherone
   if (targetableByType[2].size()) {
     mustTargetType = 2;
   } else if (targetableByType[1].size() && scannedByType[2].empty()) {
@@ -551,23 +552,26 @@ void routine(Creatures &allCreatures, Drones &myDrones) {
           }
         }
       } else if (((mustTargetType + 1) * F1) > drone._y) {
-        ctx << " MOVING DOWN";
-        Point next;
-        if (drone._x > F2)
-          next.x = F3;
-        else
-          next.x = F1;
-        next.y = (mustTargetType + 1) * F1;
+        ctx << " MOVING";
+        Point next = drone.getStratPointFromZone(mustTargetType + 1);
         directionAngle = getAngle({next.x - drone._x, next.y - drone._y});
       }
     }
     if (target) {
-      directionAngle = angleFromDir(drone.blip.at(target->_id));
+      Point next = drone.getStratPointFromZone(mustTargetType + 1);
+      if (target->_type == mustTargetType) {
+        if (drone.blip.at(target->_id).back() == 'R') {
+          next.x = drone._x + 600;
+        } else {
+          next.x = drone._x - 600;
+        }
+      }
+      directionAngle = getAngle({next.x - drone._x, next.y - drone._y});
       cerr << "target: " << target->_id << endl;
     }
     ctx << " " << directionAngle;
     int light = 0;
-    if (drone._y >= F1 && routineCount%2 == 0) {
+    if (drone._y >= F1 && routineCount % 2 == 0) {
       light = 1;
     }
 
@@ -576,7 +580,7 @@ void routine(Creatures &allCreatures, Drones &myDrones) {
 
     Point v = getVector(directionAngle);
 
-    changeAngleInCaseOfDanger(directions, directionAngle, v);
+    getBetterAngle(directions, directionAngle, v);
     moveTo(drone._x + v.x, drone._y + v.y, light, ctx.str());
     droneLoopCount++;
   }
