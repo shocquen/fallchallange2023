@@ -12,7 +12,7 @@
 #include <utility>
 #include <vector>
 #define D_MAX 600
-#define D_DANGER 620
+#define D_DANGER 500
 #define ONE_EIGHTY_PI 57.2957795131
 #define PI_ONE_EIGHTY 0.01745329251
 
@@ -47,6 +47,9 @@ typedef struct Point {
     this->y = y;
   };
 } Point;
+
+// first: danger distance, second danger id;
+typedef pair<double, int> MinDistFrom ;
 
 // ex: get C = 2/3 of AB then m = 2 and n = 3 - m = 1;
 Point getPointOnSegmentRatio(Point p1, Point p2, int m, int n) {
@@ -163,6 +166,41 @@ public:
     return ret;
   }
 
+  MinDistFrom getMinDist(Point v, vector<Creature> monsters) {
+    const int ratio = 32;
+    array<Point, ratio + 1> droneSteps;
+    Point p1 = getPos();
+    Point p2 = {p1.x + v.x, p1.y + v.y};
+    pair<double, int> minDist = {F4, -1};
+
+    for (int i = 0; i <= ratio; i++) {
+      droneSteps[i] = getPointOnSegmentRatio(p1, p2, i, ratio - i);
+    }
+    for (auto &monster : monsters) {
+      for (int i = 0; i <= ratio; i++) {
+        Point nexPos = monster.getNextPos();
+        Point compare =
+            getPointOnSegmentRatio(monster.getPos(), nexPos, i, ratio - i);
+        double dist = ::getDist(droneSteps[i], compare);
+        if (dist < minDist.first) {
+          minDist.first = dist;
+          minDist.second = monster._id;
+        }
+      }
+    }
+    if (minDist.second == -1) {
+      double distBot = ::getDist(p2, {p2.x, (double)F4});
+      double distRight = ::getDist(p2, {p2.y, (double)F4});
+      double distLeft = ::getDist(p2, {p2.y, 0.});
+      if (distBot < distRight && distBot < distLeft)
+        minDist.first = distBot;
+      else if (distRight < distLeft && distRight < distBot)
+        minDist.first = distRight;
+      else
+        minDist.first = distLeft;
+    }
+    return minDist;
+  }
   int isDangerous(Point v, vector<Creature> monsters) {
     const int ratio = 32;
     array<Point, ratio + 1> droneSteps;
@@ -192,15 +230,16 @@ public:
     return (_y >= F1 * (targetsType + 1) && _y <= F1 * (targetsType + 2));
   }
 
-  void setSafeDirections(array<int, 360> &directions,
+  void setSafeDirections(array<MinDistFrom, 360> &directions,
                          vector<int> &safeDirections,
                          vector<int> &mehDirections,
-                         vector<Creature> monsters) {
+                         vector<Creature> monsters, int light) {
+    const int visionRange = light ? 2000 : 800;
     for (int angle = 0; angle < 360; angle++) {
-      directions[angle] = isDangerous(getVector(angle), monsters);
-      if (directions[angle] == 0)
+      directions[angle] = getMinDist(getVector(angle), monsters);
+      if (directions[angle].first > visionRange)
         safeDirections.push_back(angle);
-      else if (directions[angle] == -1)
+      else if (directions[angle].first > 500)
         mehDirections.push_back(angle);
     }
   }
@@ -455,11 +494,11 @@ void moveTo(int x, int y, int light, string ctx) {
   cout << "MOVE " << x << " " << y << " " << light << " " << ctx << endl;
 }
 
-void betterAngle(array<int, 360> directions, vector<int> safeDirections,
+void betterAngle(array<MinDistFrom, 360> directions, vector<int> safeDirections,
                  vector<int> mehDirections, int &directionAngle) {
-  if (directions[directionAngle] == 0)
+  if (directions[directionAngle].first > 620)
     return;
-  cerr << "Danger! Pb id " << directions[directionAngle] << " on "
+  cerr << "Danger! Pb id " << directions[directionAngle].second << " on "
        << directionAngle << endl;
   cerr << safeDirections.size() << " alt safe directions" << endl;
     cerr << mehDirections.size() << " alt meh directions" << endl;
@@ -584,11 +623,11 @@ void routine(Creatures &allCreatures, Drones &myDrones) {
       light = 1;
     }
 
-    array<int, 360> directions{};
+    array<MinDistFrom, 360> directions{};
     vector<int> safeDirections{};
     vector<int> mehDirections{};
     drone.setSafeDirections(directions, safeDirections, mehDirections,
-                            monsters);
+                            monsters, light);
 
     betterAngle(directions, safeDirections, mehDirections, directionAngle);
 
