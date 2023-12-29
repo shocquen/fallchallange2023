@@ -237,7 +237,7 @@ public:
     const int visionRange = light ? 2000 : 800;
     for (int angle = 0; angle < 360; angle++) {
       directions[angle] = getMinDist(getVector(angle), monsters);
-      if (directions[angle].first > visionRange)
+      if (directions[angle].first > 620)
         safeDirections.push_back(angle);
       else if (directions[angle].first > 500)
         mehDirections.push_back(angle);
@@ -541,7 +541,8 @@ void routine(Creatures &allCreatures, Drones &myDrones) {
   vector<Creature> monsters{};
   array<vector<Creature>, 3> targetableByType{};
   array<vector<Creature>, 3> scannedByType{};
-  vector<Creature> scannedBys{};
+  array<vector<Creature>, 4> scannedByColor{};
+  int scannedScorePossible = 0;
 
   // Fill vectors
   for (auto &[creatureId, creature] : allCreatures) {
@@ -551,7 +552,8 @@ void routine(Creatures &allCreatures, Drones &myDrones) {
       targetableByType[creature._type].push_back(creature);
     } else if (creature._scannedBy != -1) {
       scannedByType[creature._type].push_back(creature);
-      scannedBys.push_back(creature);
+      scannedByColor[creature._color].push_back(creature);
+      scannedScorePossible += creature._type + 1;
     }
   }
 
@@ -560,12 +562,31 @@ void routine(Creatures &allCreatures, Drones &myDrones) {
   // Be sure to comple a zone before going the otherone
   if (targetableByType[2].size()) {
     mustTargetType = 2;
-  } else if (targetableByType[1].size() && scannedByType[2].empty()) {
-    mustTargetType = 1;
-  } else if (targetableByType[0].size() && scannedByType[1].empty()) {
+  } else if (targetableByType[0].size()) {
     mustTargetType = 0;
+  } else if (targetableByType[1].size()) {
+    mustTargetType = 1;
   }
   cerr << "Must target type: " << mustTargetType << endl;
+
+  // get possible bonnus score in scanned and go save depend on it
+  int fullTypeScanned = 0;
+  int fullColorScanned = 0;
+  for (int i = 0; i < 3; i++) {
+    if (scannedByType[i].size() == 4)
+      fullTypeScanned++;
+    if (scannedByColor[i].size() == 3)
+      fullColorScanned++;
+  }
+  if (scannedByColor[3].size() == 3)
+      fullColorScanned++;
+  int tmp =fullColorScanned * 3;
+  tmp += fullTypeScanned * 8;
+  tmp += scannedScorePossible;
+  bool mustSave = tmp > 28;
+  cerr << "fullColorScanned: " << fullColorScanned << ", fullTypeScanned: " << fullTypeScanned << endl;
+  cerr << "ScannedScorePossible: " << scannedScorePossible << ", possible bonus score: " << tmp << endl;
+  cerr << "must save ? " << mustSave << endl;
 
   int droneLoopCount = 0;
   for (auto &[droneId, drone] : myDrones) {
@@ -575,32 +596,26 @@ void routine(Creatures &allCreatures, Drones &myDrones) {
     Creature *target = NULL;
     ostringstream ctx;
 
-    // get possible score in scanned and go save depend on it
-    int scannedCount = 0;
-    for (auto &c : scannedBys) {
-      if (c._scannedBy == drone._id)
-        scannedCount++;
-    }
 
-    if (mustTargetType != -1) {
+    if (mustTargetType != -1 && mustSave == false) {
       if (drone.isInTargetsZone(mustTargetType)) {
-        ctx << " IN ZONE";
-        if (!droneLoopCount) {
+        ctx << "start ";
+        if (droneLoopCount && drone._id % 2) {
           for (auto it = targetableByType[mustTargetType].rbegin();
                it != targetableByType[mustTargetType].rend(); it++) {
             target = &(*it);
-            ctx << " HUNTING";
+            ctx << "B";
             break;
           }
         } else {
           for (auto &creature : targetableByType[mustTargetType]) {
             target = &creature;
-            ctx << " HUNTING";
+            ctx << "A";
             break;
           }
         }
       } else if (((mustTargetType + 1) * F1) > drone._y) {
-        ctx << " MOVING";
+        ctx << "NoNoNoNooo!!!";
         Point next = drone.getStratPointFromZone(mustTargetType + 1);
         directionAngle = getAngle({next.x - drone._x, next.y - drone._y});
       }
@@ -617,7 +632,6 @@ void routine(Creatures &allCreatures, Drones &myDrones) {
       directionAngle = getAngle({next.x - drone._x, next.y - drone._y});
       cerr << "target: " << target->_id << endl;
     }
-    ctx << " " << directionAngle;
     int light = 0;
     if (drone._y >= F1 && routineCount % 2 == 0) {
       light = 1;
