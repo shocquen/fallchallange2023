@@ -3,6 +3,7 @@
 #include <cmath>
 #include <iomanip>
 #include <iostream>
+#include <list>
 #include <map>
 #include <math.h>
 #include <pthread.h>
@@ -11,7 +12,7 @@
 #include <utility>
 #include <vector>
 #define D_MAX 600
-#define D_DANGER 650
+#define D_DANGER 620
 #define ONE_EIGHTY_PI 57.2957795131
 #define PI_ONE_EIGHTY 0.01745329251
 
@@ -170,9 +171,6 @@ public:
 
     for (int i = 0; i <= ratio; i++) {
       droneSteps[i] = getPointOnSegmentRatio(p1, p2, i, ratio - i);
-      if (droneSteps[i].x > F4 - 800 || droneSteps[i].x < 800 ||
-          droneSteps[i].y > F4 - 800)
-        return 1;
     }
     for (auto &monster : monsters) {
       for (int i = 0; i <= ratio; i++) {
@@ -184,6 +182,9 @@ public:
         }
       }
     }
+    if (p2.x > F4 - D_DANGER || p2.x < D_DANGER ||
+        p2.y > F4 - D_DANGER)
+      return -1;
     return 0;
   }
 
@@ -192,9 +193,15 @@ public:
   }
 
   void setSafeDirections(array<int, 360> &directions,
+                         vector<int> &safeDirections,
+                         vector<int> &mehDirections,
                          vector<Creature> monsters) {
     for (int angle = 0; angle < 360; angle++) {
       directions[angle] = isDangerous(getVector(angle), monsters);
+      if (directions[angle] == 0)
+        safeDirections.push_back(angle);
+      else if (directions[angle] == -1)
+        mehDirections.push_back(angle);
     }
   }
 };
@@ -448,53 +455,45 @@ void moveTo(int x, int y, int light, string ctx) {
   cout << "MOVE " << x << " " << y << " " << light << " " << ctx << endl;
 }
 
-
-void getBetterAngle(const array<int, 360> directions,
-                               int &directionAngle, Point &v) {
-  bool changed = false;
-  if (directions[directionAngle]) {
-    cerr << "Danger, there is monster " << directions[directionAngle - 1]
-         << " on " << directionAngle << endl;
-    for (int i = 1; i <= 180; i++) {
-      int plus, minus;
-      plus = (directionAngle + i) % 360;
-      minus = (directionAngle - i) % 360;
-      if (minus < 0)
-        minus += 360;
-
-      if (directions[plus] == 0) {
-        v = getVector(plus);
-        cerr << "New direction: " << plus << " | +" << i << endl;
-        changed = true;
-        break;
-      }
-      if (directions[minus] == 0) {
-        v = getVector(minus);
-        cerr << "New direction: " << minus << " | -" << i << endl;
-        changed = true;
-        break;
-      }
+void betterAngle(array<int, 360> directions, vector<int> safeDirections,
+                 vector<int> mehDirections, int &directionAngle) {
+  if (directions[directionAngle] == 0)
+    return;
+  cerr << "Danger! Pb id " << directions[directionAngle] << " on "
+       << directionAngle << endl;
+  cerr << safeDirections.size() << " alt safe directions" << endl;
+    cerr << mehDirections.size() << " alt meh directions" << endl;
+  if (safeDirections.empty() == false) {
+    // sort one actual angle and possible angle delta
+    sort(safeDirections.begin(), safeDirections.end(),
+         [&directionAngle](const int a, const int b) {
+           return (abs(directionAngle - a) < abs(directionAngle - b));
+         });
+    int i = 0;
+    cerr << "safe >>> ";
+    for (auto it = safeDirections.begin(); it != safeDirections.end() && i < 5;
+         it++, i++) {
+      cerr << *it << " ";
     }
-    if (!changed) {
-      for (int i = 1; i <= 180; i++) {
-        int plus, minus;
-        plus = (directionAngle + i) % 360;
-        minus = (directionAngle - i) % 360;
-        if (minus < 0)
-          minus += 360;
-
-        if (directions[plus] <= 1) {
-          v = getVector(plus);
-          cerr << "New meh direction: " << plus << " | +" << i << endl;
-          break;
-        }
-        if (directions[minus] <= 1) {
-          v = getVector(minus);
-          cerr << "New meh irection: " << minus << " | -" << i << endl;
-          break;
-        }
-      }
+    cerr << endl;
+    cerr << "New angle direction: " << directionAngle << " -> ";
+    directionAngle = safeDirections.front();
+    cerr << directionAngle << endl;
+  } else if (mehDirections.empty() == false) {
+    sort(mehDirections.begin(), mehDirections.end(),
+         [&directionAngle](const int a, const int b) {
+           return (abs(directionAngle - a) < abs(directionAngle - b));
+         });
+    int i = 0;
+    cerr << "meh >>> ";
+    for (auto it = mehDirections.begin(); it != mehDirections.end() && i < 5;
+         it++, i++) {
+      cerr << *it << " ";
     }
+    cerr << endl;
+    cerr << "New angle direction: " << directionAngle << " -> ";
+    directionAngle = mehDirections.front();
+    cerr << directionAngle << endl;
   }
 }
 
@@ -503,6 +502,7 @@ void routine(Creatures &allCreatures, Drones &myDrones) {
   vector<Creature> monsters{};
   array<vector<Creature>, 3> targetableByType{};
   array<vector<Creature>, 3> scannedByType{};
+  vector<Creature> scannedBys{};
 
   // Fill vectors
   for (auto &[creatureId, creature] : allCreatures) {
@@ -510,8 +510,10 @@ void routine(Creatures &allCreatures, Drones &myDrones) {
       monsters.push_back(creature);
     } else if (creature.isTargatable()) {
       targetableByType[creature._type].push_back(creature);
-    } else if (creature._scannedBy != -1)
+    } else if (creature._scannedBy != -1) {
       scannedByType[creature._type].push_back(creature);
+      scannedBys.push_back(creature);
+    }
   }
 
   int mustTargetType = -1;
@@ -534,10 +536,17 @@ void routine(Creatures &allCreatures, Drones &myDrones) {
     Creature *target = NULL;
     ostringstream ctx;
 
+    // get possible score in scanned and go save depend on it
+    int scannedCount = 0;
+    for (auto &c : scannedBys) {
+      if (c._scannedBy == drone._id)
+        scannedCount++;
+    }
+
     if (mustTargetType != -1) {
       if (drone.isInTargetsZone(mustTargetType)) {
         ctx << " IN ZONE";
-        if (droneLoopCount) {
+        if (!droneLoopCount) {
           for (auto it = targetableByType[mustTargetType].rbegin();
                it != targetableByType[mustTargetType].rend(); it++) {
             target = &(*it);
@@ -576,14 +585,18 @@ void routine(Creatures &allCreatures, Drones &myDrones) {
     }
 
     array<int, 360> directions{};
-    drone.setSafeDirections(directions, monsters);
+    vector<int> safeDirections{};
+    vector<int> mehDirections{};
+    drone.setSafeDirections(directions, safeDirections, mehDirections,
+                            monsters);
+
+    betterAngle(directions, safeDirections, mehDirections, directionAngle);
 
     Point v = getVector(directionAngle);
-
-    getBetterAngle(directions, directionAngle, v);
     moveTo(drone._x + v.x, drone._y + v.y, light, ctx.str());
     droneLoopCount++;
   }
+  routineCount++;
 }
 int main() {
   Creatures allCreatures;
